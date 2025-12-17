@@ -1,0 +1,110 @@
+version: '3.7'
+
+services:
+  data_app:
+    build:
+        context: .
+        dockerfile: Dockerfile
+    image: data-app-image:latest
+    container_name: data_app_service
+    networks:
+      - data-network
+
+  # 2. DATA LAKE SIMULADO (MinIO)
+  minio:
+    image: minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000" # Porta da API (para scripts Python)
+      - "9001:9001" # Porta da interface web
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_storage:/data
+    networks:
+      - data-network
+
+  # 3. BANCO DE DADOS (PostgreSQL)
+  postgres:
+    image: postgres:13
+    container_name: postgres_db
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+    networks:
+      - data-network
+
+  # 4. ORQUESTRAÇÃO (Apache Airflow Webserver)
+  airflow-webserver:
+    image: apache/airflow:2.8.1
+    container_name: airflow_webserver
+    restart: always
+    depends_on:
+      - postgres
+      - minio
+    command: webserver # Comando de inicialização do Webserver (corrigido)
+    environment:
+      # Variáveis de Configuração do Airflow
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+
+      # Conexão do Banco de Dados (PostgreSQL)
+      - AIRFLOW_DB_HOST=postgres
+      - AIRFLOW_DB_USER=airflow
+      - AIRFLOW_DB_PASS=airflow
+      # CONEXÃO EXPLÍCITA (Correção do erro SQLite/LocalExecutor)
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+
+    volumes:
+      # Mapeia a pasta local de DAGs para o contêiner
+      - ./dags:/opt/airflow/dags
+
+      # Mapeia a pasta para logs e outros arquivos persistentes
+      - airflow_logs:/opt/airflow/logs
+    ports:
+      - "8081:8080" # Interface Web do Airflow
+    networks:
+      - data-network
+
+  # 5. ORQUESTRAÇÃO (Apache Airflow Scheduler)
+  airflow-scheduler:
+    image: apache/airflow:2.8.1
+    container_name: airflow_scheduler
+    restart: always
+    command: scheduler # Comando de inicialização do Scheduler (corrigido)
+    depends_on:
+      - airflow-webserver
+    environment:
+      # Variáveis de Configuração do Airflow
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+
+      # Conexão do Banco de Dados (PostgreSQL)
+      - AIRFLOW_DB_HOST=postgres
+      - AIRFLOW_DB_USER=airflow
+      - AIRFLOW_DB_PASS=airflow
+      # CONEXÃO EXPLÍCITA (Correção do erro SQLite/LocalExecutor)
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+
+    volumes:
+      - ./dags:/opt/airflow/dags
+
+      - airflow_logs:/opt/airflow/logs
+    networks:
+      - data-network
+
+networks:
+  data-network:
+
+
+volumes:
+  minio_storage:
+  pg_data:
+  airflow_logs: # Novo volume para logs persistentes do Airflow

@@ -1,0 +1,6 @@
+# bibliotecas necessárias para o projeto
+apache-airflow-providers-amazon
+apache-airflow-providers-postgres
+pandas
+requests
+minio
